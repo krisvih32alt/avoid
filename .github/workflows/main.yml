@@ -33,7 +33,7 @@ jobs:
       uses: actions/upload-pages-artifact@v3
       if: github.ref == 'refs/heads/main'
       with:
-        path: './dist'
+        path: './build/web'  # Changed from './dist'
         
     - name: Deploy to GitHub Pages
       if: github.ref == 'refs/heads/main'

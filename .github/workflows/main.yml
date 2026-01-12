@@ -1,4 +1,4 @@
-name: Build pygbag game
+name: Build and Deploy pygbag to Repo
 
 on:
   push:
@@ -8,9 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 jobs:
   build:
@@ -34,18 +32,8 @@ jobs:
       run: |
         python -m pygbag --build game.py
         
-    - name: Upload HTML artifacts
-      uses: actions/upload-pages-artifact@v3
+    - name: Commit build output to repo
+      uses: stefanzweifel/git-auto-commit-action@v5
       with:
-        path: './build/web'
-        
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment:
-      name: github-pages
-    steps:
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v4
+        commit_message: "Update built HTML files"
+        file_pattern: 'build/web/*'

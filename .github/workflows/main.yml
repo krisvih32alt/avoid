@@ -1,4 +1,4 @@
-name: Build Single-File pygbag Game
+name: Build Offline pygbag Game
 
 on:
   push:
@@ -34,52 +34,21 @@ jobs:
     - name: Build pygbag
       run: python -m pygbag --build game.py
       
-    - name: Create single index.html
+    - name: Copy offline files to root
       run: |
-        cd build/web
-        cat > ../../index.html << 'HTML_EOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Avoid Game - Offline</title>
-    <style>
-        body { 
-            margin: 0; 
-            padding: 20px; 
-            background: #000; 
-            color: #fff; 
-            font-family: Arial; 
-            text-align: center;
-        }
-        canvas { 
-            border: 2px solid #fff; 
-            display: block; 
-            margin: 20px auto; 
-            max-width: 100%;
-        }
-        h1 { color: #0ff; }
-    </style>
-</head>
-<body>
-    <h1>🎮 Avoid Game</h1>
-    <canvas id="canvas" width="800" height="600"></canvas>
-    <p>✓ 100% Offline - No internet required!</p>
-HTML_EOF
+        cp build/web/* . || true
+        cp build/web/.* . || true
         
-        # Copy main game files (pygbag creates these)
-        cp index.html ../../index.html || true
-        cp *.js ../../ || true
-        cp *.wasm ../../ || true
-        
-    - name: Commit single file
+    - name: Commit game files
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
-        git add index.html *.js *.wasm || true
+        git add index.html *.js *.wasm *.png || true
         if ! git diff --staged --quiet; then
-          git commit -m "Add offline single-file game [skip ci]"
+          git commit -m "Add offline pygbag game files [skip ci]"
           git push
+        else
+          echo "No new files to commit"
         fi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

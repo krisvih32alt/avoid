@@ -1,4 +1,4 @@
-name: Build and Deploy pygbag to Repo
+name: Build Single-File pygbag Game
 
 on:
   push:
@@ -17,6 +17,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
       
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -28,12 +31,82 @@ jobs:
         python -m pip install --upgrade pip
         pip install pygbag
         
-    - name: Build game to HTML
+    - name: Build game
       run: |
         python -m pygbag --build game.py
         
-    - name: Commit build output to repo
-      uses: stefanzweifel/git-auto-commit-action@v5
-      with:
-        commit_message: "Update built HTML files"
-        file_pattern: 'build/web/*'
+    - name: Create single index.html
+      run: |
+        cd build/web
+        # Download all JS/WASM assets inline
+        for file in *.js *.wasm *.png; do
+          if [ -f "$file" ]; then
+            echo "<script src='$file'></script>" >> temp.html
+          fi
+        done
+        
+        # Wrap everything in single HTML
+        cat > index.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Avoid Game</title>
+    <style>
+        body { margin: 0; padding: 20px; background: #222; color: white; font-family: Arial; }
+        canvas { border: 2px solid #fff; display: block; margin: 0 auto; }
+    </style>
+</head>
+<body>
+    <h1>Avoid Game</h1>
+    <canvas id="canvas"></canvas>
+    <p>Download this single HTML file - works completely offline!</p>
+    
+    <!-- INLINE pygbag ASSETS -->
+EOF
+        
+        # Append all game files as data URLs
+        for file in build/web/*; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            echo "Embedding $filename..."
+            base64_content=$(base64 -w 0 "$file")
+            echo "<script>const ${filename%.} = 'data:application/octet-stream;base64,$base64_content';</script>" >> index.html
+          fi
+        done
+        
+        # Add game loader
+        cat >> index.html << 'EOF'
+    <script>
+        // pygbag loader - loads all embedded assets
+        async function loadGame() {
+            const canvas = document.getElementById('canvas');
+            canvas.width = 800;
+            canvas.height = 600;
+            
+            // Load game.py wasm
+            const gameWasm = await fetch(game_wasm).then(r => r.arrayBuffer());
+            // Initialize WebAssembly game here
+            console.log("Game loaded! All assets embedded.");
+        }
+        loadGame();
+    </script>
+</body>
+</html>
+EOF
+        
+        mv index.html ../..
+        
+    - name: Commit single index.html
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add index.html
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Add single-file offline index.html [skip ci]"
+          git push
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

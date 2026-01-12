@@ -1,0 +1,40 @@
+name: Build pygbag game
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install pygbag
+      run: |
+        python -m pip install --upgrade pip
+        pip install pygbag
+        
+    - name: Build game to HTML
+      run: |
+        python -m pygbag --build game.py
+        
+    - name: Upload HTML artifacts
+      uses: actions/upload-pages-artifact@v3
+      if: github.ref == 'refs/heads/main'
+      with:
+        path: './dist'
+        
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main'
+      uses: actions/deploy-pages@v4

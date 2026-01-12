@@ -1,54 +1,24 @@
-name: Build Offline pygbag Game
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-
-permissions:
-  contents: write
-
+name: Deploy pygbag game
+on: [push, pull_request, workflow_dispatch]
+permissions: write-all
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
-      
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        
-    - name: Install pygbag
-      run: |
-        python -m pip install --upgrade pip
-        pip install pygbag
-        
-    - name: Build pygbag
-      run: python -m pygbag --build game.py
-      
-    - name: Copy offline files to root
-      run: |
-        cp build/web/* . || true
-        cp build/web/.* . || true
-        
-    - name: Commit game files
-      run: |
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
-        git add index.html *.js *.wasm *.png || true
-        if ! git diff --staged --quiet; then
-          git commit -m "Add offline pygbag game files [skip ci]"
-          git push
-        else
-          echo "No new files to commit"
-        fi
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/setup-python@v5
+      with: python-version: 3.11
+    - run: pip install pygbag
+    - run: python -m pygbag --build game.py
+    - run: |
+        # Copy ALL files from build/web to root
+        find build/web -type f -exec cp {} . \;
+        # List what we copied
+        ls -la *.html *.js *.wasm || echo "No game files found"
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git add .
+        git commit -m "deploy pygbag game" || true
+        git push

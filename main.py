@@ -1,0 +1,186 @@
+# Required imports FIRST for pygbag
+import numpy  # Must be before pygame
+import asyncio
+import pygame
+import random
+import math  # For potential trig ops
+
+pygame.init()
+
+SCREEN_WIDTH = 500
+SCREEN_HEIGHT = 500
+
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Avoid Game")
+clock = pygame.time.Clock()
+font = pygame.font.SysFont(None, 50)
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (200, 0, 0)
+GRAY = (180, 180, 180)
+BLUE = (0, 0, 255)
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((60, 20))
+        self.image.fill(BLACK)
+        self.rect = self.image.get_rect()
+        self.rect.center = screen.get_rect().center
+        self.last_move_time = 0  # Use int for web compat
+        self.idle_limit = 2000
+        self.x = float(self.rect.x)
+        self.speed = 0.0
+        self.accel = 0.5
+        self.friction = 0.9
+        self.max_speed = 8
+
+    def respawn(self):
+        self.rect.center = (SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        self.x = float(self.rect.x)
+        self.speed = 0
+        self.last_move_time = pygame.time.get_ticks()
+
+    def update(self, keys):
+        current_time = pygame.time.get_ticks()
+        moving = False
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            self.speed -= self.accel
+            moving = True
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            self.speed += self.accel
+            moving = True
+        
+        if moving:
+            self.last_move_time = current_time
+        
+        if current_time - self.last_move_time >= self.idle_limit:
+            return False
+        
+        self.speed = max(-self.max_speed, min(self.speed, self.max_speed))
+        self.speed *= self.friction
+        self.x += self.speed
+        self.rect.x = int(self.x)
+        self.rect.clamp_ip(screen.get_rect())
+        return True
+
+class Obstacle(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface((30, 30))
+        self.image.fill(RED)
+        self.rect = self.image.get_rect()
+        self.rect.x = random.randint(0, SCREEN_WIDTH - self.rect.width)
+        self.scored = False
+        if random.choice([True, False]):
+            self.rect.y = -self.rect.height
+            self.speed = random.randint(3, 6)
+        else:
+            self.rect.y = SCREEN_HEIGHT
+            self.speed = -random.randint(3, 6)
+
+    def update(self):
+        self.rect.y += self.speed
+        if self.rect.top > SCREEN_HEIGHT or self.rect.bottom < 0:
+            self.kill()
+
+score = 0
+player = Player()
+player_group = pygame.sprite.Group(player)
+obstacles = pygame.sprite.Group()
+
+SPAWN_EVENT = pygame.USEREVENT + 1
+pygame.time.set_timer(SPAWN_EVENT, 800)
+
+game_active = False
+has_started = False
+level = 1
+mouse_was_down = False
+
+def draw_button(text):
+    rect = pygame.Rect(0, 0, 300, 100)
+    rect.center = screen.get_rect().center
+    pygame.draw.rect(screen, GRAY, rect)
+    label = font.render(text, True, BLACK)
+    screen.blit(label, label.get_rect(center=rect.center))
+    return rect
+
+async def main():
+    global score, game_active, has_started, level, mouse_was_down
+    
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            
+            if event.type == SPAWN_EVENT and game_active:
+                if random.randint(0, 10 - level) == 0:
+                    obstacles.add(Obstacle())
+
+            if event.type == pygame.MOUSEBUTTONDOWN and not game_active:
+                mouse_was_down = True
+            
+            if event.type == pygame.MOUSEBUTTONUP and not game_active and mouse_was_down:
+                mouse_was_down = False
+                button_rect = pygame.Rect(0, 0, 200, 60)
+                button_rect.center = screen.get_rect().center
+                if button_rect.collidepoint(event.pos):
+                    score = 0
+                    level = 2
+                    obstacles.empty()
+                    player.respawn()
+                    game_active = True
+                    has_started = True
+
+        keys = pygame.key.get_pressed()
+
+        if game_active:
+            if not player.update(keys):
+                game_active = False
+            else:
+                obstacles.update()
+
+            for obs in obstacles:
+                if not obs.scored:
+                    if (obs.speed > 0 and obs.rect.top > player.rect.centery) or \
+                       (obs.speed < 0 and obs.rect.bottom < player.rect.centery):
+                        score += 100
+                        obs.scored = True
+
+            if pygame.sprite.spritecollideany(player, obstacles):
+                game_active = False
+
+        screen.fill(WHITE)
+        player_group.draw(screen)
+        obstacles.draw(screen)
+        
+        if score >= level * 100:
+            level += 1
+            score = 0
+        
+        if level == 1:
+            screen.blit(font.render("Avoid the blocks the fastest", True, BLACK), (SCREEN_WIDTH / 12, SCREEN_HEIGHT / 6))
+            screen.blit(font.render("to win! Use arrow keys or", True, BLACK), (SCREEN_WIDTH / 12, SCREEN_HEIGHT / 4))
+            screen.blit(font.render("WASD to move!", True, BLACK), (SCREEN_WIDTH / 5, SCREEN_HEIGHT / 3))
+            screen.blit(font.render("Don't stay in the same place", True, RED), (SCREEN_WIDTH / 11, SCREEN_HEIGHT / 1.5))
+            screen.blit(font.render("for too long or get a ", True, RED), (SCREEN_WIDTH / 5, SCREEN_HEIGHT / 1.25))
+            screen.blit(font.render("SURPRISE", True, BLUE), (SCREEN_WIDTH / 3, SCREEN_HEIGHT / 1.1))
+            
+        if level == 10:
+            screen.fill(BLACK)
+            screen.blit(font.render("YOU WIN!!!", True, BLUE), (SCREEN_WIDTH / 3.5, SCREEN_HEIGHT / 2))
+        
+        screen.blit(font.render(f"Score: {score}   Level: {level - 1 if level != 1 else 'Tutorial'}", True, BLACK), (SCREEN_WIDTH / 8, SCREEN_HEIGHT / 12))
+        
+        if not game_active:
+            draw_button("RESPAWN" if has_started else "START")
+
+        pygame.display.flip()
+        clock.tick(level * 60)
+        await asyncio.sleep(0)  # Required for pygbag web loop
+
+asyncio.run(main())
+pygame.quit()
+

@@ -1,5 +1,4 @@
-# Space Invaders
+# Avoid
 
-This repo is copied from the original by Santhoshkumard11, from this [Github repo](https://github.com/Santhoshkumard11/deploy-pygame). See his [DEV article for a discussion](https://dev.to/sandy_codes_py/deploy-pygames-to-github-pages-with-webassembly-56po)
+A game where you avoid the obstacles and get apples for more lives.
 
-See LICENSE for the original authors license. 

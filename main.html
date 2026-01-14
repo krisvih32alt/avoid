@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Avoid</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: white;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            font-family: Arial;
+        }
+
+        canvas {
+            width: 100vw;
+            height: 100vh;
+            max-width: 100vw;
+            max-height: 100vh;
+            object-fit: contain;
+            display: block;
+            border: 1px solid black;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="game"></canvas>
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+
+        // Maintain 500x500 logical size but scale to fullscreen
+        const SCREEN_WIDTH = 500;
+        const SCREEN_HEIGHT = 500;
+
+        // Scale factors for fullscreen
+        let scaleX = 1;
+        let scaleY = 1;
+
+        function resizeCanvas() {
+            // Get display size
+            const displayWidth = canvas.clientWidth;
+            const displayHeight = canvas.clientHeight;
+
+            // Calculate uniform scale to fit 500x500 game world
+            scaleX = displayWidth / SCREEN_WIDTH;
+            scaleY = displayHeight / SCREEN_HEIGHT;
+            const scale = Math.min(scaleX, scaleY);
+
+            // Set canvas resolution to exact display size for crisp rendering
+            canvas.width = displayWidth;
+            canvas.height = displayHeight;
+
+            // Reset transform and set uniform scale
+            ctx.resetTransform();
+            ctx.scale(scale, scale);
+
+            // Center the game world if needed
+            ctx.translate((SCREEN_WIDTH - SCREEN_WIDTH) / 2, (SCREEN_HEIGHT - SCREEN_HEIGHT) / 2);
+        }
+
+        // Initial resize
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const WHITE = '#FFFFFF';
+        const BLACK = '#000000';
+        const RED = '#C80000';
+        const GRAY = '#B4B4B4';
+        const BLUE = '#0000FF';
+        const GREEN = '#00FF00';
+
+        // Game state
+        let player = null;
+        let obstacles = [];
+        let apples = [];
+        let score = 0;
+        let level = 1;
+        let lives = 3;
+        let game_active = false;
+        let has_started = false;
+        let last_spawn_time = 0;
+        let spawn_interval = 100;
+
+        const keys = {};
+
+        class Player {
+            constructor() {
+                this.width = 60;
+                this.height = 20;
+                this.x = (SCREEN_WIDTH - this.width) / 2;
+                this.y = (SCREEN_HEIGHT - this.height) / 2;
+                this.speed = 0.0;
+                this.accel = 0.5;
+                this.friction = 0.9;
+                this.max_speed = 8;
+                this.last_move_time = Date.now();
+                this.orig_idle_limit = 2000;
+                this.idle_limit = this.orig_idle_limit;
+            }
+
+            respawn() {
+                this.x = (SCREEN_WIDTH - this.width) / 2;
+                this.y = (SCREEN_HEIGHT - this.height) / 2;
+                this.speed = 0;
+                this.last_move_time = Date.now();
+            }
+
+            update(keys) {
+                const left_pressed = keys['ArrowLeft'] || keys['a'] || keys['A'];
+                const right_pressed = keys['ArrowRight'] || keys['d'] || keys['D'];
+
+                // Apply acceleration ONLY if single direction
+                if (left_pressed && !right_pressed) {
+                    this.speed -= this.accel;
+                }
+                if (right_pressed && !left_pressed) {
+                    this.speed += this.accel;
+                }
+
+                // Physics
+                this.speed = Math.max(-this.max_speed, Math.min(this.speed, this.max_speed));
+                this.speed *= this.friction;
+
+                // Stop micro-coasting
+                if (Math.abs(this.speed) < 0.1) {
+                    this.speed = 0;
+                }
+
+                this.x += this.speed;
+
+                // Clamp boundaries
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > SCREEN_WIDTH) this.x = SCREEN_WIDTH - this.width;
+
+                // NO IDLE CHECK - always return true
+                return true;
+            }
+
+
+
+            draw(ctx) {
+                ctx.fillStyle = BLACK;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+
+            get rect() {
+                return { x: this.x, y: this.y, width: this.width, height: this.height };
+            }
+        }
+
+        class Obstacle {
+            constructor() {
+                this.width = 30;
+                this.height = 30;
+                this.x = Math.random() * (SCREEN_WIDTH - this.width);
+                this.y = Math.random() < 0.5 ? -this.height : SCREEN_HEIGHT;
+                this.speed = (Math.random() < 0.5 ? 1 : -1) * (3 + Math.random() * 3) * level;
+                this.scored = false;
+            }
+
+            update(scoreRef) {
+                this.y += this.speed;
+                if (this.y > SCREEN_HEIGHT || this.y + this.height < 0) {
+                    return true;
+                }
+                return false;
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = RED;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+
+            get rect() {
+                return { x: this.x, y: this.y, width: this.width, height: this.height };
+            }
+        }
+
+        class Apple {
+            constructor() {
+                this.width = 25;
+                this.height = 25;
+                this.x = Math.random() * (SCREEN_WIDTH - this.width);
+                this.y = Math.random() < 0.5 ? -this.height : SCREEN_HEIGHT;
+                this.speed = (Math.random() < 0.5 ? 1 : -1) * (2 + Math.random() * 2);
+                this.collected = false;
+            }
+
+            update() {
+                this.y += this.speed;
+                if (this.y > SCREEN_HEIGHT || this.y + this.height < 0) {
+                    return true; // Remove
+                }
+                return false;
+            }
+
+            draw(ctx) {
+                // Shiny apple
+                ctx.fillStyle = GREEN;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.fillStyle = '#00CC00';
+                ctx.fillRect(this.x + 5, this.y + 5, this.width - 10, this.height - 10);
+            }
+
+            get rect() {
+                return { x: this.x, y: this.y, width: this.width, height: this.height };
+            }
+        }
+
+        function drawButton(ctx, text) {
+            const w = 300, h = 100;
+            const x = SCREEN_WIDTH / 2;
+            const y = SCREEN_HEIGHT / 2;
+
+            ctx.fillStyle = GRAY;
+            ctx.fillRect(x - w / 2, y - h / 2, w, h);
+
+            ctx.fillStyle = BLACK;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '50px Arial';
+            ctx.fillText(text, x, y);
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+        }
+
+        function drawCenteredText(ctx, texts, colors, yPositions) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            for (let i = 0; i < texts.length; i++) {
+                ctx.fillStyle = colors[i] || BLACK;
+                ctx.font = 'bold 42px Arial';
+                ctx.fillText(texts[i], SCREEN_WIDTH / 2, yPositions[i]);
+            }
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'alphabetic';
+            ctx.font = '50px Arial';
+        }
+
+        document.addEventListener('keydown', (e) => keys[e.key] = true);
+        document.addEventListener('keyup', (e) => keys[e.key] = false);
+
+        canvas.addEventListener('click', (e) => {
+            if (!game_active) {
+                const rect = canvas.getBoundingClientRect();
+                const displayX = e.clientX - rect.left;
+                const displayY = e.clientY - rect.top;
+
+                // Use SAME scaling as canvas context
+                const scaleX = canvas.clientWidth / SCREEN_WIDTH;
+                const scaleY = canvas.clientHeight / SCREEN_HEIGHT;
+                const x = displayX / scaleX;
+                const y = displayY / scaleY;
+
+                const button_rect = {
+                    x: SCREEN_WIDTH / 2 - 150,
+                    y: SCREEN_HEIGHT / 2 - 50,
+                    width: 300,
+                    height: 100
+                };
+
+                if (x >= button_rect.x && x <= button_rect.x + button_rect.width &&
+                    y >= button_rect.y && y <= button_rect.y + button_rect.height) {
+                    score = 0;
+                    level = 2;
+                    lives = 3;
+                    obstacles = [];
+                    apples = [];
+                    player = new Player();
+                    game_active = true;
+                    has_started = true;
+                }
+            }
+        });
+
+
+        function collides(r1, r2) {
+            return r1.x < r2.x + r2.width &&
+                r1.x + r1.width > r2.x &&
+                r1.y < r2.y + r2.height &&
+                r1.y + r1.height > r2.y;
+        }
+
+        function gameLoop(time) {
+    // Clear screen
+    ctx.fillStyle = WHITE;
+    ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+    // Draw everything
+    if (player) player.draw(ctx);
+    obstacles.forEach(obs => obs.draw(ctx));
+    apples.forEach(apple => apple.draw(ctx));
+
+    // Level progression
+    if (score >= level * 100) {
+        level += 1;
+        score = 0;
+    }
+
+    // UI
+    ctx.fillStyle = BLACK;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 36px Arial';
+    ctx.fillText(`Lives: ${lives}`, SCREEN_WIDTH / 2, 80);
+    ctx.fillText(`Score: ${score}  Level: ${level === 1 ? 'Tutorial' : level - 1}`, SCREEN_WIDTH / 2, 50);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+
+    // Tutorial screen
+    if (level === 1 && !game_active) {
+        drawCenteredText(ctx, [
+            "Avoid the blocks",
+            "the fastest to win!",
+            "Arrow keys or WASD",
+            "Collect green apples",
+            "for extra lives!"
+        ], [BLACK, BLACK, BLACK, GREEN, BLUE], [100, 150, 350, 400, 450]);
+    }
+
+    // Win condition
+    if (level === 12) {
+        ctx.fillStyle = BLACK;
+        ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+        ctx.fillStyle = BLUE;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 60px Arial';
+        ctx.fillText("YOU WIN!!!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    // Start/Respawn button
+    if (!game_active) {
+        drawButton(ctx, has_started ? "RESPAWN" : "START");
+    }
+
+    // Game logic
+    if (game_active) {
+        player.update(keys);
+        
+        // Spawn logic
+        if (time - last_spawn_time > spawn_interval) {
+            if (Math.random() < (0.3 + level * 0.02)) {
+                obstacles.push(new Obstacle());
+            }
+            if (Math.random() < 0.02) {
+                apples.push(new Apple());
+            }
+            last_spawn_time = time;
+        }
+
+        // Update obstacles
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            if (obstacles[i].update(score)) {
+                obstacles.splice(i, 1);
+            } else if (!obstacles[i].scored) {
+                const playerCenterY = player.y + player.height / 2;
+                if ((obstacles[i].speed > 0 && obstacles[i].y > playerCenterY) ||
+                    (obstacles[i].speed < 0 && obstacles[i].y + obstacles[i].height < playerCenterY)) {
+                    score += 100;
+                    obstacles[i].scored = true;
+                }
+            }
+        }
+
+        // Update apples
+        for (let i = apples.length - 1; i >= 0; i--) {
+            if (apples[i].update()) {
+                apples.splice(i, 1);
+            } else if (collides(player.rect, apples[i].rect)) {
+                lives++;
+                apples.splice(i, 1);
+            }
+        }
+        
+        // Check collisions
+        let hit_obstacle = false;
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            if (!hit_obstacle && collides(player.rect, obstacles[i].rect)) {
+                lives--;
+                obstacles.splice(i, 1);
+                hit_obstacle = true;
+                if (lives <= 0) {
+                    game_active = false;
+                }
+                break;
+            }
+        }
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+        // UI
+        ctx.fillStyle = BLACK;
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 36px Arial';
+        ctx.fillText(`Lives: ${lives}`, SCREEN_WIDTH / 2, 80);
+        ctx.fillText(`Score: ${score}  Level: ${level === 1 ? 'Tutorial' : level - 1}`, SCREEN_WIDTH / 2, 50);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+
+
+        if (!game_active) {
+            drawButton(ctx, has_started ? "RESPAWN" : "START");
+        }
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+
+</html>

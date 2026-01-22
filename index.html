@@ -96,8 +96,8 @@
 
         class Player {
             constructor() {
-                this.width = 60;
-                this.height = 60;
+                this.width = 5;
+                this.height = 5;
                 this.x = Math.random() * (SCREEN_WIDTH - this.width);
                 this.y = SCREEN_HEIGHT / 2
                 this.lateral_speed = 0.0;
@@ -112,6 +112,8 @@
             }
 
             respawn() {
+                this.height = 5;
+                this.width = 5;
                 this.x = (SCREEN_WIDTH - this.width) / 2;
                 this.y = (SCREEN_HEIGHT - this.height) / 2;
                 this.lateral_speed = 0;
@@ -391,6 +393,8 @@
     // Level progression
     if (score >= level * 100) {
         level++;
+        player.width = level * 5;
+        player.height = level * 5;
         score = 0;
     }
 
